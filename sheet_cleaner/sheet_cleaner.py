@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import re
 from pathlib import Path
@@ -16,19 +17,37 @@ class SheetCleaner:
         (r"<o:p></o:p>", '')
     ]
     subs_rules_re = [(re.compile(rule[0]), rule[1]) for rule in subs_rules_txt]
+    code_conv_map = None
 
     @classmethod
-    def clean_html(cls, src_content):
+    def code_conv(cls, content: str) -> str:
+        if cls.code_conv_map is None:
+            with (Path(__file__).parent / 'code_conv_map.json').open('rt') as fp:
+                cls.code_conv_map = json.load(fp)
+
+        def conv(match: re.Match) -> str:
+            return f'&#{cls.code_conv_map.get(match.group(1), match.group(1))};'
+        
+        return re.sub(r'&#([0-9]{3});', conv, content)
+
+    @classmethod
+    def proc_html(cls, src_content):
         dst_content = src_content
         for rule in cls.subs_rules_re:
             dst_content = rule[0].sub(rule[1], dst_content)
+        dst_content = cls.code_conv(dst_content)
         return dst_content
 
     @classmethod
     def clean_file(cls, src_file: Path, dst_file: Path):
-        with src_file.open('rt') as fp:
-            src_content = fp.read()
-        dst_content = cls.clean_html(src_content)
+        try:
+            with src_file.open('rt', encoding='utf-8') as fp:
+                src_content = fp.read()
+        except UnicodeDecodeError:
+            with src_file.open('rt', encoding='cp950') as fp:
+                src_content = fp.read()
+
+        dst_content = cls.proc_html(src_content)
         with dst_file.open('wt') as fp:
             fp.write(dst_content)
 
